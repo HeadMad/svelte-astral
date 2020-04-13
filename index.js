@@ -53,8 +53,8 @@ const createCatalogWalker = (ast) => {
           }
         })
       }
-      if (typeof handler !== 'function' || !catalog.has(nodeName)) return
-      for (const node of catalog.get(nodeName)){
+      if (typeof handler !== 'function' || !catalog.has(type)) return
+      for (const node of catalog.get(type)){
         if (skip) {
           skip = false
           break

@@ -24,7 +24,7 @@ const createCatalogWalker = (ast) => {
   })
 
   // checker for stop walking
-  let skip = false
+  let stop = false
   return {
     /**
      * Calling in walker, for stop walking
@@ -32,7 +32,7 @@ const createCatalogWalker = (ast) => {
      * @param {Boolean} is in walking you can pass cheking in argument
      * @return {Boolean}
      */
-    skip: (is = true) => skip = Boolean(is),
+    stop: (is = true) => stop = Boolean(is),
 
     /**
      * 
@@ -44,8 +44,8 @@ const createCatalogWalker = (ast) => {
         svelte.walk(ast, {
           enter(node) {
             if (!node.type) return
-            if (skip) {
-              skip = false
+            if (stop) {
+              stop = false
               this.skip()
             } else {
               type(node)
@@ -55,8 +55,8 @@ const createCatalogWalker = (ast) => {
       }
       if (typeof handler !== 'function' || !catalog.has(type)) return
       for (const node of catalog.get(type)){
-        if (skip) {
-          skip = false
+        if (stop) {
+          stop = false
           break
         } else {
           handler(node)

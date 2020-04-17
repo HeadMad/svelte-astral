@@ -1,78 +1,102 @@
 const svelte = require('svelte/compiler')
+const CHILDRENS = new WeakMap()
+const TYPES = new Map()
+const MODIFIED_NODES = new WeakMap()
 
-function createProxyNode (types, nodes, node) {
+const is = new Proxy({}, {get: (_, prop) => (target) => target.constructor.name === prop})
+
+const getWalkerNode = (node) => {
+  if (MODIFIED_NODES.has(node))
+    return MODIFIED_NODES.get(node)
+  const result = createWalker(node)
+  MODIFIED_NODES.set(node, result)
+  return result
+}
+
+function walkChildrens(childrens, handler) {
+  for (const rawChild of childrens) {
+    if (check.stop) { check.stop = false; break }
+    const child = getWalkerNode(rawChild)
+    handler(child)
+    if (!check.skip) child.walk(type, handler)
+  } //for
+}
+
+function createWalker(node)
+{
   const check = {}
-  return new Proxy(node, {
-    get(target, prop) {
-      if (prop === 'stop' || prop === 'skip') {
-        return (is = true) => check[prop] = Boolean(is)
+  const checker = (prop) => (is = true) => check[prop] = Boolean(is)
   
-      } else if (prop === 'walk') {
-        return (type, handler) => {
-          let collect
-          if (typeof type === 'function') {
-            handler = type
-            collect = nodes.get(node)
-          } else if (handler === handler && types.has(type)) {
-            collect = types.get(type).get(node)
-          }
+  const walk = (type, handler) => {
+    if (check.stop) { check.stop = false; return }
+    if (!CHILDRENS.has(node)) return
+    const childrens = CHILDRENS.get(node)
 
-          for (let child of collect) {
-            // if (check.stop) {
-            //   check.stop = false
-            //   break
-            // }
-            child = createProxyNode(types, nodes, child)
-            handler(child)
-            if (!check.skip) child.walk(...arguments)
-            check.skip = false
-          }
-
+    if (is.Function(type)) {
+      for (const rawChild of childrens) {
+        if (check.stop) { check.stop = false; break }
+        const child = getWalkerNode(rawChild)
+        type(child)
+        if (!check.skip) child.walk(type)
+      } //for
+      
+    } else if (is.String(type) && is.Function(handler)) {
+      if (TYPES.get(type).has(node))
+        for (const child of TYPES.get(type).get(node)) {
+          if (check.stop) break
+          handler(getWalkerNode(child))
         }
-      }
+      if (check.skip || check.stop) {
+        check.stop = false
+        check.skip = false
+        return
+      } 
+      childrens.forEach((child) => getWalkerNode(child).walk(type, handler))
     }
+  } //walk
+  
+  const props = new Map()
+  props.set('walk', walk)
+  props.set('stop', checker('stop'))
+  props.set('skip', checker('skip'))
+
+  return new Proxy(node, {
+    get: (node, prop) => node[prop] || props.get(prop)
   })
 }
 
-/**
- * Create catalog of nodes from AST by types
- * 
- * @param {Object} ast AST for catologize
- * @return {Object} 
- */
-const createCatalog = (ast) => {
-  if (!ast) return
-  let root
-  const typesCatalog = new Map()
-  const nodesCatalog = new WeakMap()
+function createCatalog(ast)
+{
+  let rootNode
   svelte.walk(ast, {
     enter(node, parent, prop, index) {
-      if (!parent) {
-        root = node
-        parent = {}
-      }
-      if (!nodesCatalog.has(parent))
-        nodesCatalog.set(parent, new Set())
-      nodesCatalog.get(parent).add(node)
+      if (!parent) { rootNode = node; return }
 
-      let type = node.type || 'root'
-      if (!typesCatalog.has(type))
-        typesCatalog.set(type, new WeakMap())
-      typesCatalog.get(type).set(parent, node)
+      if (!CHILDRENS.has(parent))
+        CHILDRENS.set(parent, new Set())
+      CHILDRENS.get(parent).add(node)
+
+      if (!TYPES.has(node.type))
+        TYPES.set(node.type, new WeakMap())
+      
+      if (!TYPES.get(node.type).has(parent))
+        TYPES.get(node.type).set(parent, new Set())
+      TYPES.get(node.type).get(parent).add(node)
+      
     }
   })
-  return createProxyNode(typesCatalog, nodesCatalog, root)
+  return createWalker(rootNode)
 }
 
-const astral = (input) => {
-  const ast = svelte.parse(input)
-  let html, css, instance, modul
+function astral(input)
+{
+  ast = svelte.parse(input)
+
   return {
-    html: () => html = html || createCatalog(ast.html),
-    css: () => css = css || createCatalog(ast.css),
-    instance: () => instance = instance || createCatalog(ast.instance),
-    module: () => modul = modul || createCatalog(ast.module)
+    html: () => createCatalog(ast.html),
+    css: () => createCatalog(ast.css),
   }
+
 }
 
 const runPlugins = (plugins) => {
